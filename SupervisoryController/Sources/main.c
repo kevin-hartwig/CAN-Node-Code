@@ -5,6 +5,7 @@
 
 #include "../Headers/PCANBasic.h"
 #include "../Headers/candefinitions.h"
+#include "../Headers/elevator_statemachine.h"
 
 #define PCAN_DEVICE   PCAN_USBBUS1      //USB Port that PCAN dongle connected to
 #define BAUD_RATE     PCAN_BAUD_125K    //CAN Bus baud rate
@@ -200,7 +201,7 @@ int init(void) {
     /* Initialize CAN Interface */
     Status = CAN_Initialize(PCAN_DEVICE, BAUD_RATE, 0, 0, 0);
     if ((int)Status) {
-        printf("CAN Intialization failed: %i", (int)Status);
+        printf("CAN Intialization failed. Error code:%i\n", (int)Status);
         return (1);
     }
 
@@ -226,6 +227,7 @@ int waiting_state(void){
     if (FloorQueueIndex != EMPTY) {
         /* There is a floor request in the Queue */
         unsigned char nextFloor = dequeueFloor();
+        printf("Dequeuing Floor: %d\n", nextFloor);
         TPCANMsg mssg;
         fillCANFrame(&mssg, (SC_Enable | nextFloor));
         if (writeCAN(&mssg))
@@ -366,11 +368,13 @@ int door_open_state(void) {
             }
 
             if ((data & BIT_2_MASK) == CC_Door_State_Open) {
-                printf("  Car controller updated door state (OPEN)\n");
+                if (DoorState != DOOR_OPEN)
+                    printf("  Car controller updated door state (OPEN)\n");
                 DoorState = DOOR_OPEN;
             }
             else if ((data & BIT_2_MASK) == CC_Door_State_Closed) {
-                printf("  Car controller updated door state (CLOSED)\n");
+                if (DoorState != DOOR_CLOSED)
+                    printf("  Car controller updated door state (CLOSED)\n");
                 DoorState = DOOR_CLOSED;
             }
           }
@@ -388,19 +392,23 @@ int door_open_state(void) {
             } */
 
             if ((data & LOW_2BIT_MASK) == EC_Car_Pos_Moving) {
-                printf("  Elevator Controller updated Car Position (MOVING)\n");
+                //if (CarPosition != CAR_MOVING)
+                    printf("  Elevator Controller updated Car Position (MOVING)\n");
                 CarPosition = CAR_MOVING;
             }
             else if ((data & LOW_2BIT_MASK) == EC_Car_Pos_F1) {
-                printf("  Elevator Controller updated Car Position (FLOOR 1)\n");
+                if (CarPosition != CAR_AT_FLOOR_1)
+                    printf("  Elevator Controller updated Car Position (FLOOR 1)\n");
                 CarPosition = CAR_AT_FLOOR_1;
             }
             else if ((data & LOW_2BIT_MASK) == EC_Car_Pos_F2) {
-                printf("  Elevator Controller updated Car Position (FLOOR 2)\n");
+                if (CarPosition != CAR_AT_FLOOR_2)
+                    printf("  Elevator Controller updated Car Position (FLOOR 2)\n");
                 CarPosition = CAR_AT_FLOOR_2;
             }
             else if ((data & LOW_2BIT_MASK) == EC_Car_Pos_F3) {
-                printf("  Elevator Controller updated Car Position (FLOOR 3)\n");
+                if (CarPosition != CAR_AT_FLOOR_3)
+                    printf("  Elevator Controller updated Car Position (FLOOR 3)\n");
                 CarPosition = CAR_AT_FLOOR_3;
             }
           }
@@ -425,11 +433,13 @@ void queueFloor(unsigned char floor) {
         printf("rejected: Queue is full\n");
         return;
     }
-    if (FloorQueue[0] == floor  ||         /* Ignore duplicate requests & */
-        FloorQueue[1] == floor  ||         /* ignore request if we are in */
-        TargetPosition == floor) {          /* transit to requested floor  */
+    if (FloorQueue[0] == floor  ||         /* Ignore duplicate requests & if */
+        FloorQueue[1] == floor) {          /* in transit to requested floor  */
         printf("rejected: Floor already queued.\n");
         return;
+    }
+    if (TargetPosition == floor) {
+        DoorState = DOOR_OPEN;
     }
     printf("accepted: Floor has been queued.\n");
     FloorQueue[FloorQueueIndex++] = floor;
