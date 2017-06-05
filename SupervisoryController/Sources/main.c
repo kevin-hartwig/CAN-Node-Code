@@ -50,9 +50,13 @@
 #define F3_Call_Req_Request   0b00000001
 
 /* Global Variables */
-unsigned char FloorQueue[3];               /* Queue of floor requests        */
+#define EMPTY           0
+#define NUM_FLOORS      3                  /* Number of floors in the system */
+#define QUEUE_LEN       NUM_FLOORS         /* Q-Len is equal to num floors   */
+unsigned char FloorQueue[QUEUE_LEN];       /* Queue of floor requests        */
 unsigned char FloorQueueIndex;             /* Points to next empty Q space   */
-#define EMPTY           0                  /* in the FloorQueue array        */
+                                           /* in the FloorQueue array */
+
 
 unsigned char DoorState;                   /* Door state: 0 open, 1 closed   */
 #define DOOR_OPEN       0                  /*   Possible Door States         */
@@ -119,8 +123,10 @@ struct transition state_transitions[] {
     {moving,          Repeat,             moving},        // 8
     {moving,          FloorArrival,       door_open}      // 9
 };
+#define TRANSITION_ENTRIES  9                   /* Nine Entries in the state
+                                                   transition table */
 
-#define ENTRY_STATE waiting
+#define ENTRY_STATE waiting                     /* Initial state is waiting */
 
 /* main application: Main entry-point
  */
@@ -179,8 +185,8 @@ int main(int argc, char* argv[]){
  *    the next state.  The return value is the next state.
  */
 int lookup_transitions(int current_state, int condition) {
-      int index, index2;
-      for (index = 0 ; index < 9 ; index++) {
+      int index;
+      for (index = 0 ; index < TRANSITION_ENTRIES ; index++) {
           if (state_transitions[index].src_state == current_state) {
             if (state_transitions[index].ret_code == condition)
               return((int)state_transitions[index].dst_state);
@@ -451,11 +457,22 @@ void queueFloor(unsigned char floor) {
  */
 unsigned char dequeueFloor(void) {
     unsigned char nextFloor = 0;
+    unsigned char i;
 
-    if (FloorQueueIndex == 0) return 0;   /* There are no items in the queue */
+    if (FloorQueueIndex == 0) {
+        printf("No floors requested.  Waiting...\n");
+        return 0;   /* There are no items in the queue */
+    }
 
-    nextFloor = FloorQueue[--FloorQueueIndex];
-    FloorQueue[FloorQueueIndex] = 0;
+    nextFloor = FloorQueue[0];            /* Dequeue from front of queue */
+
+    for (i = 0 ; i < (QUEUE_LEN-1) && (FloorQueue[i]) ; i++){
+        FloorQueue[i] = FloorQueue[i+1];  /* Fix the queue */
+    }
+
+    FloorQueue[QUEUE_LEN-1] = 0;          /* Make sure last element is empty */
+
+    FloorQueueIndex--;                    /* Decrement main index track */
 
     return (nextFloor);
 }
