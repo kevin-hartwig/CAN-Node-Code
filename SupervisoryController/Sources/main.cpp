@@ -76,6 +76,7 @@ unsigned char DoorState;                   /* Door state: 0 open, 1 closed   */
 #define DOOR_OPEN       0                  /*   Possible Door States         */
 #define DOOR_CLOSED     1
 unsigned char CarPosition;                 /* Car Position                   */
+unsigned char CarPositionPrev;
 unsigned char TargetPosition;              /* Target Car Positions           */
 #define CAR_MOVING      0                  /*   Possible Car Positions       */
 #define CAR_AT_FLOOR_1  1
@@ -98,6 +99,8 @@ int writeCAN(TPCANMsg *mssg);              /* Write a message to the CAN bus */
 void fillCANFrame(TPCANMsg *mssg,          /* Fill a CAN frame               */
                   char data);
 int init(void);                            /* Initialize CAN and globals     */
+
+void updateMySQL_CANLog(char signal[]);
 
 /* State Machine Definitions */
 int waiting_state(void);
@@ -172,7 +175,7 @@ int dequeueMySQL_clientQueue() {
     //stmt->execute("INSERT INTO clientQueue (activeID) VALUES (200)");
     res = stmt->executeQuery("SELECT activeID FROM clientQueue");
     if (res->next()) {
-        printf("ActiveID: %d", res->getInt(1));
+        //printf("ActiveID: %d", res->getInt(1));
         nextAction = res->getInt(1);
         char query[100] = {0};
         char number[10] = {0};
@@ -198,6 +201,7 @@ int dequeueMySQL_clientQueue() {
                 break;
             case 7:
                 if (DoorState == DOOR_CLOSED && CarPosition != CAR_MOVING){
+                    puts("Client UI opened the door");
                     DoorState = DOOR_OPEN;
                 } else {
                     /* Need to immediately set this request to zero in
@@ -207,6 +211,7 @@ int dequeueMySQL_clientQueue() {
             case 8:
                 DoorState = DOOR_CLOSED;
                 if (DoorState == DOOR_OPEN) {
+                    puts("Client UI closed the door");
                     DoorState = DOOR_CLOSED;
                 } else {
                     /* Need to immediately set this request to zero in
@@ -218,7 +223,9 @@ int dequeueMySQL_clientQueue() {
                 fflush(stdout);
                 break;
         }
+        //updateMySQL_CANLog("Client Request");
     }
+
 
     delete stmt;
     delete res;
@@ -380,8 +387,6 @@ int main(int argc, char* argv[]){
 
     updateMySQL_currentState();
 
-    //updateMySQL_CANLog("0");
-
     if (init()) {
         /* Initialization failed */
         printf("Exiting...\n");
@@ -396,7 +401,6 @@ int main(int argc, char* argv[]){
       if (cur_state != prev_state){
         prev_state = cur_state;
         updateMySQL_currentState();
-        updateMySQL_CANLog("nothing");
         switch (cur_state) {
             case waiting:
                 printf("\nIn Waiting State...\n\n");
@@ -681,7 +685,15 @@ int door_open_state(void) {
           printf("  Error: parsing failed. ID not recognized\n");
           break;
     }
-    //updateMySQL_CANLog(signalBuff);
+    if (mssg->ID == EC) {
+        if (CarPosition != CarPositionPrev) {
+            updateMySQL_CANLog(signalBuff);
+            CarPositionPrev = CarPosition;
+        }
+    }
+    else {
+        updateMySQL_CANLog(signalBuff);
+    }
 }
 
 /* void queueFloor(unsigned char floor)
