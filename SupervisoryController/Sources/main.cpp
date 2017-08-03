@@ -26,6 +26,8 @@ using namespace std;
 #define MY_ID         0x100             //ID for CAN messages
 #define MESSAGE_LEN   1                 //Length of data portion of CAN message
 
+int Last_ID;
+
 //Message defines
 #define SC_Enable             0b00000100
 #define SC_Enable_False       0b00000000
@@ -143,7 +145,7 @@ struct transition state_transitions[] {
 #define TRANSITION_ENTRIES  9                   /* Nine Entries in the state
                                                    transition table */
 
-#define ENTRY_STATE waiting                     /* Initial state is waiting */
+#define ENTRY_STATE door_closed                     /* Initial state is waiting */
 
 sql::Connection *con;
 sql::Driver *driver;
@@ -163,6 +165,78 @@ int connectMySQL() {
         cout << "Failed to establish valid connection" << endl;
         return(0);
     }
+}
+
+int updateMySQL_clientRequests_remove(int floor) {
+    sql::Statement *stmt;
+
+    stmt = con->createStatement();
+    //stmt->execute("INSERT INTO clientQueue (activeID) VALUES (200)");
+    switch(floor) {
+        case 1:
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=1");
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=4");
+            puts("Updated clientRequests table");
+            break;
+        case 2:
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=2");
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=5");
+            puts("Updated clientRequests table");
+            break;
+        case 3:
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=3");
+            stmt->execute("UPDATE clientRequests SET STATUS=0 where requestID=6");
+            puts("Updated clientRequests table");
+            break;
+    }
+
+    delete stmt;
+
+    return(0);
+}
+
+int updateMySQL_clientRequests_add(int ID, int floor) {
+    sql::Statement *stmt;
+
+    stmt = con->createStatement();
+    //stmt->execute("INSERT INTO clientQueue (activeID) VALUES (200)");
+
+    if (ID == CC){
+        switch(floor) {
+            case 1:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=4");
+                puts("Updated clientRequests table");
+                break;
+            case 2:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=5");
+                puts("Updated clientRequests table");
+                break;
+            case 3:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=6");
+                puts("Updated clientRequests table");
+                break;
+        }
+    } else if (ID == F1 || ID == F2 || ID == F3) {
+        switch(floor) {
+            case 1:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=1");
+                puts("Updated clientRequests table");
+                break;
+            case 2:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=2");
+                puts("Updated clientRequests table");
+                break;
+            case 3:
+                stmt->execute("UPDATE clientRequests SET STATUS=1 where requestID=3");
+                puts("Updated clientRequests table");
+                break;
+        }
+    }
+
+    delete stmt;
+
+    return(0);
+
 }
 
 int dequeueMySQL_clientQueue() {
@@ -345,7 +419,7 @@ void updateMySQL_CANLog(char signal[]) {
     }
 
     /* Door State */
-    if (DoorState = DOOR_OPEN)
+    if (DoorState == DOOR_OPEN)
         strcat(query, "\"OPEN\",");
     else
         strcat(query, "\"CLOSED\",");
@@ -563,6 +637,7 @@ int moving_state(void) {
     if (CarPosition == TargetPosition) {
         /* We have arrived at our destination */
         DoorState = DOOR_OPEN;
+        updateMySQL_clientRequests_remove(CarPosition);
         return (FloorArrival);
     }
 
@@ -601,6 +676,8 @@ int door_open_state(void) {
     unsigned char data = (unsigned char)mssg->DATA[0];
     char signalBuff[20] = {0};
 
+    Last_ID = mssg->ID;
+
     switch(mssg->ID){
       case F1:
           printf("  Car requested from Floor 1...");
@@ -618,6 +695,7 @@ int door_open_state(void) {
           queueFloor(3);
           break;
       case CC:
+          puts("Received message from CC");
           strcpy(signalBuff, "200");
           {
             if (data & CC_Floor_Req_None) {/* Do nothing */}
@@ -635,11 +713,15 @@ int door_open_state(void) {
             }
 
             if ((data & BIT_2_MASK) == CC_Door_State_Open) {
+                //puts("CC Said: DOOR OPEN");
                 if (DoorState != DOOR_OPEN)
                     printf("  Car controller updated door state (OPEN)\n");
                 DoorState = DOOR_OPEN;
+                //if (DoorState == DOOR_OPEN) puts("Door State now Open");
+                //else puts("Failed to change door state");
             }
             else if ((data & BIT_2_MASK) == CC_Door_State_Closed) {
+                //puts("CC Said: DOOR CLOSED");
                 if (DoorState != DOOR_CLOSED)
                     printf("  Car controller updated door state (CLOSED)\n");
                 DoorState = DOOR_CLOSED;
@@ -692,6 +774,9 @@ int door_open_state(void) {
         }
     }
     else {
+        //if (DoorState == DOOR_OPEN) puts("Door State now Open");
+        //else puts("Failed to change door state");
+        puts("Updating CAN log");
         updateMySQL_CANLog(signalBuff);
     }
 }
@@ -720,6 +805,8 @@ void queueFloor(unsigned char floor) {
     }
     printf("accepted: Floor has been queued.\n");
     FloorQueue[FloorQueueIndex++] = floor;
+
+    updateMySQL_clientRequests_add(Last_ID, floor);
 
 }
 
